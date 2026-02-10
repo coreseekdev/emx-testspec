@@ -1,0 +1,19 @@
+[package]
+name = "emx-testspec"
+version = "0.1.0"
+edition = "2021"
+authors = ["nzinfo <li.monan@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/coreseekdev/emx-testspec"
+rust-version = "1.70"
+description = "A testspec engine for CLI E2E testing, inspired by Go's cmd/internal/script"
+
+[dependencies]
+emx-txtar = { git = "https://github.com/coreseekdev/emx-txtar", version = "0.1.0" }
+anyhow = "1.0"
+regex = "1"
+similar = "2"
+tempfile = "3"
+
+[dev-dependencies]
+tempfile = "3"
