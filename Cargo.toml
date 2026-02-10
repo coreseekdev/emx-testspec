@@ -8,12 +8,17 @@ repository = "https://github.com/coreseekdev/emx-testspec"
 rust-version = "1.70"
 description = "A testspec engine for CLI E2E testing, inspired by Go's cmd/internal/script"
 
+[[bin]]
+name = "emx-testspec"
+path = "src/bin/emx-testspec.rs"
+
 [dependencies]
 emx-txtar = { git = "https://github.com/coreseekdev/emx-txtar", version = "0.1.0" }
 anyhow = "1.0"
 regex = "1"
 similar = "2"
 tempfile = "3"
+clap = { version = "4.4", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3"

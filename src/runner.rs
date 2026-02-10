@@ -209,6 +209,13 @@ impl TestRunner {
         })
     }
 
+    /// Count the number of tests that would be run
+    pub fn count_tests(&self) -> Result<usize, std::io::Error> {
+        let files = self.discover()?;
+        let count = files.len();
+        Ok(count)
+    }
+
     /// Run a single test file
     pub fn run_one(&self, file: &Path) -> TestCaseResult {
         let start = Instant::now();
