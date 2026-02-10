@@ -2,7 +2,6 @@
 //!
 //! Run testspec E2E tests from txtar files.
 
-use anyhow::Result;
 use clap::Parser;
 use std::path::PathBuf;
 use std::process::ExitCode;
