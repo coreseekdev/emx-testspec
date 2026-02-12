@@ -1,0 +1,21 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# Cargo
+Cargo.lock
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+/tests/.scratch/

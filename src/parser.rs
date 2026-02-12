@@ -7,7 +7,9 @@
 //! - `?` prefix for may-fail
 //! - `[cond]` for conditional execution
 //! - Single-quote strings disable word splitting and env expansion
-//! - `''` inside quotes produces a literal `'`
+//! - Double-quote strings disable word splitting and env expansion (Windows-style)
+//! - `''` inside single quotes produces a literal `'`
+//! - `""` inside double quotes produces a literal `"`
 //! - Environment variable expansion (`$VAR`, `${VAR}`) happens in the engine,
 //!   not here — the parser preserves fragments with quoted/unquoted tracking.
 
@@ -17,8 +19,19 @@
 pub struct ArgFragment {
     /// The text content of this fragment
     pub s: String,
-    /// If true, this fragment was inside single quotes — disable expansion
+    /// If true, this fragment was inside quotes — disable expansion
     pub quoted: bool,
+}
+
+/// Quote state for parsing
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QuoteState {
+    /// Not in quotes
+    None,
+    /// In single quotes (')
+    Single,
+    /// In double quotes (")
+    Double,
 }
 
 /// A parsed script line
@@ -83,7 +96,7 @@ pub fn parse_line(line: &str, line_number: usize) -> Result<Option<ScriptLine>, 
     let mut raw_args: Vec<Vec<ArgFragment>> = Vec::new();
     let mut current_frags: Vec<ArgFragment> = Vec::new();
     let mut start: Option<usize> = None; // start of current unquoted/quoted text chunk
-    let mut quoted = false;
+    let mut quote_state = QuoteState::None;
 
     // Accumulated command metadata
     let mut negate = false;
@@ -158,7 +171,8 @@ pub fn parse_line(line: &str, line_number: usize) -> Result<Option<ScriptLine>, 
 
     let mut i = 0;
     loop {
-        if !quoted && (i >= len || ARG_SEP_CHARS.contains(&(line_bytes[i] as char))) {
+        let in_quotes = quote_state != QuoteState::None;
+        if !in_quotes && (i >= len || ARG_SEP_CHARS.contains(&(line_bytes[i] as char))) {
             // Found arg-separating space or #
             if let Some(s) = start {
                 let text = &line[s..i];
@@ -183,8 +197,9 @@ pub fn parse_line(line: &str, line_number: usize) -> Result<Option<ScriptLine>, 
                 line: line_number,
             });
         }
-        if line_bytes[i] == b'\'' {
-            if !quoted {
+        if line_bytes[i] == b'\'' || line_bytes[i] == b'"' {
+            let is_single = line_bytes[i] == b'\'';
+            if quote_state == QuoteState::None {
                 // Starting a quoted chunk
                 if let Some(s) = start {
                     current_frags.push(ArgFragment {
@@ -193,29 +208,37 @@ pub fn parse_line(line: &str, line_number: usize) -> Result<Option<ScriptLine>, 
                     });
                 }
                 start = Some(i + 1);
-                quoted = true;
+                quote_state = if is_single { QuoteState::Single } else { QuoteState::Double };
                 i += 1;
                 continue;
             }
-            // Inside quotes: check for '' (escaped quote)
-            if i + 1 < len && line_bytes[i + 1] == b'\'' {
+            // Check if we're in the same quote type
+            let matching_single = quote_state == QuoteState::Single && is_single;
+            let matching_double = quote_state == QuoteState::Double && !is_single;
+
+            if matching_single || matching_double {
+                // Inside quotes: check for escaped quote ('' or "")
+                if i + 1 < len && line_bytes[i + 1] == line_bytes[i] {
+                    current_frags.push(ArgFragment {
+                        s: line[start.unwrap_or(i)..i].to_string(),
+                        quoted: true,
+                    });
+                    start = Some(i + 1);
+                    i += 2; // skip both quotes
+                    continue;
+                }
+                // Ending a quoted chunk
                 current_frags.push(ArgFragment {
                     s: line[start.unwrap_or(i)..i].to_string(),
                     quoted: true,
                 });
                 start = Some(i + 1);
-                i += 2; // skip both quotes
+                quote_state = QuoteState::None;
+                i += 1;
                 continue;
             }
-            // Ending a quoted chunk
-            current_frags.push(ArgFragment {
-                s: line[start.unwrap_or(i)..i].to_string(),
-                quoted: true,
-            });
-            start = Some(i + 1);
-            quoted = false;
-            i += 1;
-            continue;
+            // Different quote type while in quotes - treat as literal character
+            // (e.g., "hello'world" - the single quote is literal)
         }
         // Regular character — start tracking if not already
         if start.is_none() {
@@ -533,5 +556,71 @@ mod tests {
         assert!(!line.background);
         assert_eq!(line.command, "echo");
         assert_eq!(join_frags(&line.raw_args[0]), "&");
+    }
+
+    #[test]
+    fn test_parse_double_quoted_args() {
+        let line = parse_line(r#"stdout "hello world""#, 1).unwrap().unwrap();
+        assert_eq!(line.command, "stdout");
+        let args = &line.raw_args;
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0].len(), 1);
+        assert_eq!(args[0][0].s, "hello world");
+        assert!(args[0][0].quoted);
+    }
+
+    #[test]
+    fn test_parse_double_quote_with_single_quote_inside() {
+        // "hello'world" - single quote inside double quotes is literal
+        let line = parse_line(r#"echo "hello'world""#, 1).unwrap().unwrap();
+        assert_eq!(line.command, "echo");
+        assert_eq!(join_frags(&line.raw_args[0]), "hello'world");
+    }
+
+    #[test]
+    fn test_parse_single_quote_with_double_quote_inside() {
+        // 'hello"world' - double quote inside single quotes is literal
+        let line = parse_line(r#"echo 'hello"world'"#, 1).unwrap().unwrap();
+        assert_eq!(line.command, "echo");
+        assert_eq!(join_frags(&line.raw_args[0]), "hello\"world");
+    }
+
+    #[test]
+    fn test_parse_escaped_double_quote() {
+        let line = parse_line(r#"echo "it""s working""#, 1).unwrap().unwrap();
+        assert_eq!(line.command, "echo");
+        let arg = &line.raw_args[0];
+        let text: String = arg.iter().map(|f| f.s.as_str()).collect();
+        assert_eq!(text, "it\"s working");
+    }
+
+    #[test]
+    fn test_parse_double_quoted_hash() {
+        // # inside double quotes should NOT be treated as comment
+        let line = parse_line(r#"echo "hello # world""#, 1).unwrap().unwrap();
+        assert_eq!(line.command, "echo");
+        assert_eq!(join_frags(&line.raw_args[0]), "hello # world");
+    }
+
+    #[test]
+    fn test_parse_unterminated_double_quote_error() {
+        let result = parse_line(r#"echo "unterminated"#, 1);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("unterminated"));
+    }
+
+    #[test]
+    fn test_parse_mixed_single_and_double_quotes() {
+        // pre"mid"suf - mixing single and double quotes
+        let line = parse_line(r#"echo pre"mid"suf"#, 1).unwrap().unwrap();
+        assert_eq!(line.command, "echo");
+        let arg = &line.raw_args[0];
+        assert_eq!(arg.len(), 3);
+        assert_eq!(arg[0].s, "pre");
+        assert!(!arg[0].quoted);
+        assert_eq!(arg[1].s, "mid");
+        assert!(arg[1].quoted);
+        assert_eq!(arg[2].s, "suf");
+        assert!(!arg[2].quoted);
     }
 }
