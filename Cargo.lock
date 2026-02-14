@@ -146,7 +146,7 @@ dependencies = [
 [[package]]
 name = "emx-txtar"
 version = "0.1.0"
-source = "git+https://github.com/coreseekdev/emx-txtar#adb8833661096e3138cff3021d124e2ed7a6ee30"
+source = "git+https://github.com/coreseekdev/emx-txtar#9b50c37b08049f1c3e5d51fc2d19a1597e276211"
 dependencies = [
  "anyhow",
  "base64",
