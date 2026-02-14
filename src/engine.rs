@@ -201,6 +201,11 @@ impl Engine {
                             heredoc_log_lines.push(heredoc_line.to_string());
                         }
 
+                        // Add trailing newline to match typical file content
+                        if !heredoc_content.is_empty() {
+                            heredoc_content.push('\n');
+                        }
+
                         // Store heredoc content and get virtual path
                         let virtual_path = state.store_heredoc(heredoc_content);
                         frag.s = virtual_path;
