@@ -146,8 +146,13 @@ impl Engine {
         script: &str,
         filename: &str,
     ) -> Result<(), ScriptError> {
-        for (i, line) in script.lines().enumerate() {
-            let line_number = i + 1;
+        let lines: Vec<&str> = script.lines().collect();
+        let mut line_idx = 0;
+
+        while line_idx < lines.len() {
+            let line = lines[line_idx];
+            let line_number = line_idx + 1;
+            line_idx += 1;
 
             // Lines starting with # are section comments — log and skip.
             // Go-compatible: only lines where '#' is the very first character
@@ -168,9 +173,48 @@ impl Engine {
                 }
             };
 
+            // Check for heredoc syntax in arguments (<<MARKER)
+            let mut expanded_raw_args = parsed.raw_args.clone();
+            let mut heredoc_log_lines: Vec<String> = Vec::new();
+
+            for arg_frags in &mut expanded_raw_args {
+                for frag in arg_frags.iter_mut() {
+                    if frag.s.starts_with("<<") && !frag.quoted {
+                        let marker = &frag.s[2..]; // Remove "<<"
+
+                        // Collect heredoc content
+                        let mut heredoc_content = String::new();
+
+                        while line_idx < lines.len() {
+                            let heredoc_line = lines[line_idx];
+                            line_idx += 1;
+
+                            if heredoc_line.trim() == marker {
+                                // Found end marker
+                                break;
+                            }
+
+                            if !heredoc_content.is_empty() {
+                                heredoc_content.push('\n');
+                            }
+                            heredoc_content.push_str(heredoc_line);
+                            heredoc_log_lines.push(heredoc_line.to_string());
+                        }
+
+                        // Store heredoc content and get virtual path
+                        let virtual_path = state.store_heredoc(heredoc_content);
+                        frag.s = virtual_path;
+                    }
+                }
+            }
+
             // Log the raw line
             if !self.quiet {
                 state.logf(&format!("> {}", parsed.raw.trim()));
+                // Log heredoc content lines
+                for heredoc_line in &heredoc_log_lines {
+                    state.logf(&format!("> {}", heredoc_line));
+                }
             }
 
             // Evaluate conditions
@@ -206,7 +250,7 @@ impl Engine {
 
             let regexp_arg_indices = if let Some(regexp_args_fn) = usage.regexp_args {
                 // Build raw (unexpanded, joined) args for the regexp_args function
-                let raw_joined: Vec<String> = parsed.raw_args.iter()
+                let raw_joined: Vec<String> = expanded_raw_args.iter()
                     .map(|frags| frags.iter().map(|f| f.s.as_str()).collect())
                     .collect();
                 regexp_args_fn(&raw_joined)
@@ -215,7 +259,7 @@ impl Engine {
             };
 
             // Expand arguments: fragment-aware, with regexp escaping for regex args
-            let expanded_args = expand_args(state, &parsed.raw_args, &regexp_arg_indices);
+            let expanded_args = expand_args(state, &expanded_raw_args, &regexp_arg_indices);
 
             // Execute command
             let result = cmd.run(state, &expanded_args);

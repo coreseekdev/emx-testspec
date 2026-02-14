@@ -68,16 +68,11 @@ fn cmp_files(state: &mut State, args: &[String], expand_env: bool) -> Result<Cmd
         ScriptError::new(ErrorKind::FileNotFound, format!("{}: {}", files[0], e))
     })?;
 
-    // Go-compatible: file2 is ALWAYS read from disk (not virtual stdout/stderr).
-    // Go uses os.ReadFile(s.Path(name2)) for file2.
-    let file2_path = state.resolve_path(files[1]);
-    let mut content2 = std::fs::read_to_string(&file2_path).map_err(|e| {
+    // Read file2 - supports heredoc (<<...), stdout/stderr, and regular files.
+    // Go-compatible: for regular files, file2 is read from disk.
+    let mut content2 = state.read_file(files[1]).map_err(|e| {
         ScriptError::new(ErrorKind::FileNotFound, format!("{}: {}", files[1], e))
     })?;
-
-    // Normalize CRLF → LF for cross-platform consistency
-    // (state.read_file normalizes file1; apply same to file2 for parity)
-    content2 = content2.replace("\r\n", "\n");
 
     if expand_env {
         content1 = state.expand(&content1);

@@ -1,0 +1,12 @@
+# Test heredoc with special characters
+
+exec echo 'special: $HOME'
+cmp stdout <<EOF
+special: $HOME
+EOF
+
+# Test heredoc with regex special chars
+exec echo 'test (pattern) here'
+cmp stdout <<MARKER
+test (pattern) here
+MARKER

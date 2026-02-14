@@ -1,0 +1,7 @@
+# Test heredoc with cmpenv command (environment variable expansion)
+
+env FOO=world
+exec echo "hello $FOO"
+cmpenv stdout <<EOF
+hello world
+EOF

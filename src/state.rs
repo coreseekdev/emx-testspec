@@ -41,6 +41,10 @@ pub struct State {
     pub log: String,
     /// Background commands waiting to be harvested
     pub background: Vec<BackgroundCmd>,
+    /// Heredoc content stored by marker name
+    heredoc_files: HashMap<String, String>,
+    /// Counter for generating unique heredoc file names
+    heredoc_counter: usize,
 }
 
 impl State {
@@ -57,6 +61,8 @@ impl State {
             exit_code: None,
             log: String::new(),
             background: Vec::new(),
+            heredoc_files: HashMap::new(),
+            heredoc_counter: 0,
         };
 
         // Go-compatible: inherit all parent environment variables by default.
@@ -271,12 +277,31 @@ impl State {
             "stdout" => self.stdout.clone(),
             "stderr" => self.stderr.clone(),
             _ => {
+                // Check if this is a heredoc virtual file
+                if name.starts_with("<<") {
+                    if let Some(content) = self.heredoc_files.get(name) {
+                        return Ok(content.clone());
+                    }
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("heredoc not found: {}", name)
+                    ));
+                }
                 let path = self.resolve_path(name);
                 std::fs::read_to_string(&path)?
             }
         };
         // Normalize CRLF → LF for cross-platform consistency
         Ok(content.replace("\r\n", "\n"))
+    }
+
+    /// Store heredoc content and return a virtual file path
+    /// The path can be used with read_file to retrieve the content
+    pub fn store_heredoc(&mut self, content: String) -> String {
+        self.heredoc_counter += 1;
+        let virtual_path = format!("<<HEREDOC{}>>", self.heredoc_counter);
+        self.heredoc_files.insert(virtual_path.clone(), content);
+        virtual_path
     }
 }
 
