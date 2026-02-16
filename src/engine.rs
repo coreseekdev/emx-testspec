@@ -146,11 +146,13 @@ impl Engine {
         script: &str,
         filename: &str,
     ) -> Result<(), ScriptError> {
-        let lines: Vec<&str> = script.lines().collect();
+        // First pass: merge continuation lines
+        let merged_lines = self.merge_continuation_lines(script.lines().collect());
+
         let mut line_idx = 0;
 
-        while line_idx < lines.len() {
-            let line = lines[line_idx];
+        while line_idx < merged_lines.len() {
+            let line = &merged_lines[line_idx];
             let line_number = line_idx + 1;
             line_idx += 1;
 
@@ -185,8 +187,8 @@ impl Engine {
                         // Collect heredoc content
                         let mut heredoc_content = String::new();
 
-                        while line_idx < lines.len() {
-                            let heredoc_line = lines[line_idx];
+                        while line_idx < merged_lines.len() {
+                            let heredoc_line = &merged_lines[line_idx];
                             line_idx += 1;
 
                             if heredoc_line.trim() == marker {
@@ -356,6 +358,60 @@ impl Engine {
         }
 
         Ok(())
+    }
+
+    /// Merge continuation lines in a script.
+    ///
+    /// Supports both Unix-style (\) and Windows-style (^) line continuation.
+    /// The continuation character must be the last non-whitespace character on the line.
+    fn merge_continuation_lines(&self, lines: Vec<&str>) -> Vec<String> {
+        let mut result = Vec::new();
+        let mut i = 0;
+
+        while i < lines.len() {
+            let mut current_line = lines[i].to_string();
+            let mut line_number = i + 1;
+
+            // Keep merging while the line ends with a continuation character
+            loop {
+                let trimmed = current_line.trim_end();
+
+                // Check if this line ends with a continuation character
+                let has_continuation = if trimmed.ends_with('\\') {
+                    // Remove the backslash
+                    current_line = trimmed[..trimmed.len() - 1].trim_end().to_string();
+                    true
+                } else if trimmed.ends_with('^') {
+                    // Remove the caret
+                    current_line = trimmed[..trimmed.len() - 1].trim_end().to_string();
+                    true
+                } else {
+                    false
+                };
+
+                if !has_continuation {
+                    break;
+                }
+
+                // Check if there's a next line to merge
+                i += 1;
+                if i >= lines.len() {
+                    break;
+                }
+
+                // Append next line with a space separator
+                let next_line = lines[i].trim();
+                if !next_line.is_empty() {
+                    current_line.push(' ');
+                    current_line.push_str(next_line);
+                }
+            }
+
+            result.push(current_line);
+            i += 1;
+        }
+
+        result
     }
 
     /// Evaluate a condition — follows Go's `conditionsActive()` closely.

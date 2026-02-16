@@ -70,7 +70,10 @@ fn main() -> ExitCode {
             cli.path.clone()
         },
         filter: if is_file {
-            Some(cli.path.file_name().unwrap().to_string_lossy().to_string())
+            // Use file stem (without extension) for filter
+            cli.path.file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
         } else {
             cli.filter
         },
