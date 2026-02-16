@@ -1,6 +1,6 @@
 # Test heredoc failure case - content mismatch should fail
 
-! exec echo hello
+exec echo hello
 ! cmp stdout <<EOF
 wrong content
 EOF

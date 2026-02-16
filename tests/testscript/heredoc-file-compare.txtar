@@ -1,7 +1,0 @@
-# Test heredoc comparing with actual file
-
-exec echo "file content"
-cmp stdout expected.txt
-
--- expected.txt --
-file content

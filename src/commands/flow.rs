@@ -1,7 +1,7 @@
 //! Flow control commands: stop, skip, sleep, wait
 
 use crate::engine::{Cmd, CmdResult, CmdUsage};
-use crate::error::{ScriptError, ErrorKind};
+use crate::error::{ErrorKind, ScriptError};
 use crate::state::State;
 
 // ──────────────────────────────────────────────────────────
@@ -72,9 +72,8 @@ impl Cmd for SleepCmd {
             return Err(ScriptError::usage("sleep", "duration"));
         }
 
-        let duration = parse_go_duration(&args[0]).map_err(|e| {
-            ScriptError::new(ErrorKind::SyntaxError, format!("sleep: {}", e))
-        })?;
+        let duration = parse_go_duration(&args[0])
+            .map_err(|e| ScriptError::new(ErrorKind::SyntaxError, format!("sleep: {}", e)))?;
 
         // Always spawn a thread — matches Go's pattern where sleep always
         // returns a WaitFunc. The engine decides fg (join immediately) vs bg.
@@ -83,7 +82,9 @@ impl Cmd for SleepCmd {
             Ok(())
         });
 
-        Ok(CmdResult::Background(crate::engine::WaitHandle::Thread(handle)))
+        Ok(CmdResult::Background(crate::engine::WaitHandle::Thread(
+            handle,
+        )))
     }
 
     fn usage(&self) -> CmdUsage {
@@ -116,8 +117,16 @@ impl Cmd for WaitCmd {
 
         for bg in bg_cmds {
             let before_args = if bg.args.is_empty() { "" } else { " " };
-            state.logf(&format!("[background] {}{}{}", bg.name, before_args,
-                bg.args.iter().map(|a| quote_arg(a)).collect::<Vec<_>>().join(" ")));
+            state.logf(&format!(
+                "[background] {}{}{}",
+                bg.name,
+                before_args,
+                bg.args
+                    .iter()
+                    .map(|a| quote_arg(a))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ));
 
             let (stdout, stderr, err) = bg.handle.wait();
 
@@ -191,7 +200,9 @@ fn parse_go_duration(s: &str) -> Result<std::time::Duration, String> {
             return Err(format!("invalid duration: {}", s));
         }
 
-        let num: f64 = num_str.parse().map_err(|_| format!("invalid duration: {}", s))?;
+        let num: f64 = num_str
+            .parse()
+            .map_err(|_| format!("invalid duration: {}", s))?;
 
         // Parse unit
         let mut unit = String::new();
@@ -205,6 +216,7 @@ fn parse_go_duration(s: &str) -> Result<std::time::Duration, String> {
         }
 
         let nanos_per_unit: f64 = match unit.as_str() {
+            "" => 1_000_000_000.0, // Default to seconds if no unit
             "ns" => 1.0,
             "us" | "µs" => 1_000.0,
             "ms" => 1_000_000.0,

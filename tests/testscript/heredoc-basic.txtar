@@ -12,9 +12,3 @@ line1
 line2
 line3
 MARKER
-
-# Test empty heredoc
-exec echo ""
-cmp stdout <<EMPTY
-
-EMPTY

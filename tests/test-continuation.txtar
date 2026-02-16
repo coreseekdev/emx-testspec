@@ -1,0 +1,4 @@
+# Test line continuation
+
+echo hello
+echo world

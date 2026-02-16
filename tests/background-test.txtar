@@ -1,0 +1,5 @@
+# Test background process
+
+exec echo "background" &
+sleep 0
+exec echo "foreground"

@@ -3,10 +3,10 @@
 //! The Engine holds command and condition registries.
 //! It is stateless config — one engine can run many scripts.
 
-use std::collections::HashMap;
 use crate::error::ScriptError;
 use crate::parser::ArgFragment;
 use crate::state::State;
+use std::collections::HashMap;
 
 /// Result returned by a command execution
 pub enum CmdResult {
@@ -36,28 +36,24 @@ impl WaitHandle {
     /// Returns (stdout, stderr, Option<error_message>).
     pub fn wait(self) -> (String, String, Option<String>) {
         match self {
-            WaitHandle::Process(child) => {
-                match child.wait_with_output() {
-                    Ok(output) => {
-                        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                        let err = if output.status.success() {
-                            None
-                        } else {
-                            Some(format!("exit code {}", output.status.code().unwrap_or(-1)))
-                        };
-                        (stdout, stderr, err)
-                    }
-                    Err(e) => (String::new(), String::new(), Some(e.to_string())),
+            WaitHandle::Process(child) => match child.wait_with_output() {
+                Ok(output) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                    let err = if output.status.success() {
+                        None
+                    } else {
+                        Some(format!("exit code {}", output.status.code().unwrap_or(-1)))
+                    };
+                    (stdout, stderr, err)
                 }
-            }
-            WaitHandle::Thread(handle) => {
-                match handle.join() {
-                    Ok(Ok(())) => (String::new(), String::new(), None),
-                    Ok(Err(e)) => (String::new(), String::new(), Some(e)),
-                    Err(_) => (String::new(), String::new(), Some("thread panicked".into())),
-                }
-            }
+                Err(e) => (String::new(), String::new(), Some(e.to_string())),
+            },
+            WaitHandle::Thread(handle) => match handle.join() {
+                Ok(Ok(())) => (String::new(), String::new(), None),
+                Ok(Err(e)) => (String::new(), String::new(), Some(e)),
+                Err(_) => (String::new(), String::new(), Some("thread panicked".into())),
+            },
         }
     }
 }
@@ -108,7 +104,8 @@ impl Engine {
 
         // Build the help command with knowledge of all registered commands/conditions.
         // Must be done after populating both registries.
-        let mut cmd_help: Vec<(String, String, String)> = commands.iter()
+        let mut cmd_help: Vec<(String, String, String)> = commands
+            .iter()
             .map(|(name, cmd)| {
                 let u = cmd.usage();
                 (name.clone(), u.args.clone(), u.summary.clone())
@@ -119,8 +116,10 @@ impl Engine {
         let mut cond_help: Vec<String> = conditions.keys().cloned().collect();
         cond_help.sort();
 
-        commands.insert("help".into(),
-            Box::new(crate::commands::HelpCmd::new(cmd_help, cond_help)));
+        commands.insert(
+            "help".into(),
+            Box::new(crate::commands::HelpCmd::new(cmd_help, cond_help)),
+        );
 
         Self {
             commands,
@@ -135,7 +134,11 @@ impl Engine {
     }
 
     /// Register a custom condition
-    pub fn register_condition(&mut self, name: impl Into<String>, cond: crate::conditions::BoxedCondition) {
+    pub fn register_condition(
+        &mut self,
+        name: impl Into<String>,
+        cond: crate::conditions::BoxedCondition,
+    ) {
         self.conditions.insert(name.into(), cond);
     }
 
@@ -170,8 +173,7 @@ impl Engine {
                 Ok(Some(p)) => p,
                 Ok(None) => continue, // blank line
                 Err(e) => {
-                    return Err(ScriptError::syntax(e.message)
-                        .with_location(filename, line_number));
+                    return Err(ScriptError::syntax(e.message).with_location(filename, line_number));
                 }
             };
 
@@ -203,8 +205,8 @@ impl Engine {
                             heredoc_log_lines.push(heredoc_line.to_string());
                         }
 
-                        // Add trailing newline to match typical file content
-                        if !heredoc_content.is_empty() {
+                        // Add trailing newline to match typical file/command output
+                        if !heredoc_content.is_empty() && !heredoc_content.ends_with('\n') {
                             heredoc_content.push('\n');
                         }
 
@@ -251,13 +253,18 @@ impl Engine {
             if parsed.background && !usage.async_ {
                 return Err(ScriptError::new(
                     crate::error::ErrorKind::SyntaxError,
-                    format!("command {} does not support background execution (&)", parsed.command),
-                ).with_location(filename, line_number));
+                    format!(
+                        "command {} does not support background execution (&)",
+                        parsed.command
+                    ),
+                )
+                .with_location(filename, line_number));
             }
 
             let regexp_arg_indices = if let Some(regexp_args_fn) = usage.regexp_args {
                 // Build raw (unexpanded, joined) args for the regexp_args function
-                let raw_joined: Vec<String> = expanded_raw_args.iter()
+                let raw_joined: Vec<String> = expanded_raw_args
+                    .iter()
                     .map(|frags| frags.iter().map(|f| f.s.as_str()).collect())
                     .collect();
                 regexp_args_fn(&raw_joined)
@@ -277,7 +284,8 @@ impl Engine {
                         return Err(ScriptError::new(
                             crate::error::ErrorKind::UnexpectedSuccess,
                             format!("command succeeded unexpectedly: {}", parsed.raw.trim()),
-                        ).with_location(filename, line_number));
+                        )
+                        .with_location(filename, line_number));
                     }
                 }
                 Ok(CmdResult::Stop(msg)) => {
@@ -318,14 +326,16 @@ impl Engine {
                         }
 
                         if let Some(err_msg) = err {
-                            let err = ScriptError::new(crate::error::ErrorKind::CommandFailed, err_msg);
+                            let err =
+                                ScriptError::new(crate::error::ErrorKind::CommandFailed, err_msg);
                             if parsed.negate {
                                 // Go-compatible: log expected error as [<err>]
                                 state.logf(&format!("[{}]", err.message));
                             } else if parsed.may_fail {
                                 state.logf(&format!("[{}]", err.message));
                             } else {
-                                return Err(err.with_location(filename, line_number)
+                                return Err(err
+                                    .with_location(filename, line_number)
                                     .with_command(&parsed.command)
                                     .with_args(expanded_args.clone()));
                             }
@@ -333,7 +343,8 @@ impl Engine {
                             return Err(ScriptError::new(
                                 crate::error::ErrorKind::UnexpectedSuccess,
                                 format!("command succeeded unexpectedly: {}", parsed.raw.trim()),
-                            ).with_location(filename, line_number));
+                            )
+                            .with_location(filename, line_number));
                         }
                     }
                 }
@@ -349,7 +360,8 @@ impl Engine {
                             state.logf(&format!("[allowed failure: {}]", e.message));
                         }
                     } else {
-                        return Err(e.with_location(filename, line_number)
+                        return Err(e
+                            .with_location(filename, line_number)
                             .with_command(&parsed.command)
                             .with_args(expanded_args.clone()));
                     }
@@ -418,7 +430,11 @@ impl Engine {
     ///
     /// The condition tag may be "name" or "name:suffix".
     /// Prefix conditions (like GOOS) require a suffix; non-prefix conditions reject suffixes.
-    fn eval_condition(&self, state: &crate::state::State, cond: &crate::parser::ScriptCondition) -> Result<bool, ScriptError> {
+    fn eval_condition(
+        &self,
+        state: &crate::state::State,
+        cond: &crate::parser::ScriptCondition,
+    ) -> Result<bool, ScriptError> {
         // Split tag on first ':' to separate prefix conditions
         let (prefix, suffix, has_colon) = if let Some(colon) = cond.tag.find(':') {
             (&cond.tag[..colon], Some(&cond.tag[colon + 1..]), true)
@@ -431,13 +447,17 @@ impl Engine {
                 // Go-compatible: "unknown condition prefix %q"
                 let mut known: Vec<&str> = self.conditions.keys().map(|s| s.as_str()).collect();
                 known.sort();
-                ScriptError::syntax(format!("unknown condition prefix {:?}; known: {:?}", prefix, known))
+                ScriptError::syntax(format!(
+                    "unknown condition prefix {:?}; known: {:?}",
+                    prefix, known
+                ))
             })?;
             // Validate prefix usage
             if !c.is_prefix() {
-                return Err(ScriptError::syntax(
-                    format!("condition {:?} cannot be used with a suffix", prefix),
-                ));
+                return Err(ScriptError::syntax(format!(
+                    "condition {:?} cannot be used with a suffix",
+                    prefix
+                )));
             }
             c
         } else {
@@ -447,16 +467,20 @@ impl Engine {
             })?;
             // Validate non-prefix usage
             if c.is_prefix() {
-                return Err(ScriptError::syntax(
-                    format!("condition {:?} requires a suffix", prefix),
-                ));
+                return Err(ScriptError::syntax(format!(
+                    "condition {:?} requires a suffix",
+                    prefix
+                )));
             }
             c
         };
 
         let result = condition.eval(state, suffix.unwrap_or("")).map_err(|e| {
             // Go-compatible: "evaluating condition %q: <err>"
-            ScriptError::syntax(format!("evaluating condition {:?}: {}", cond.tag, e.message))
+            ScriptError::syntax(format!(
+                "evaluating condition {:?}: {}",
+                cond.tag, e.message
+            ))
         })?;
         Ok(if cond.negate { !result } else { result })
     }
@@ -475,7 +499,11 @@ impl Default for Engine {
 /// - Unquoted fragments have env vars expanded via `state.expand_env()`
 /// - If the argument index is in `regexp_args`, env var values are regex-escaped
 ///   (equivalent to Go's `regexp.QuoteMeta`)
-pub fn expand_args(state: &State, raw_args: &[Vec<ArgFragment>], regexp_args: &[usize]) -> Vec<String> {
+pub fn expand_args(
+    state: &State,
+    raw_args: &[Vec<ArgFragment>],
+    regexp_args: &[usize],
+) -> Vec<String> {
     let mut args = Vec::with_capacity(raw_args.len());
     for (i, frags) in raw_args.iter().enumerate() {
         let is_regexp = regexp_args.contains(&i);
