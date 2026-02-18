@@ -382,7 +382,6 @@ impl Engine {
 
         while i < lines.len() {
             let mut current_line = lines[i].to_string();
-            let mut line_number = i + 1;
 
             // Keep merging while the line ends with a continuation character
             loop {
